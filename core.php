@@ -1,24 +1,40 @@
 <?php
-// core.php — GhostFund full core
+
+require __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/PHPMailer/PHPMailer.php';
+require_once __DIR__ . '/PHPMailer/SMTP.php';
+require_once __DIR__ . '/PHPMailer/Exception.php';
+
+use Paynow\Payments\Paynow;
+
+
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+
+
 
 /////////////////////
-// CONFIG (hardcoded)
+// CONFIG 
 /////////////////////
-$GF_DB_HOST = "127.0.0.1";
-$GF_DB_NAME = "ghostfund";
-$GF_DB_USER = "root";
-$GF_DB_PASS = "password";
+$GF_ADMIN_USER = "ghost";
+$GF_ADMIN_PASS = "boo!"; // change this!
+$GF_DB_HOST = "db.fr-pari1.bengt.wasmernet.com";
+$GF_DB_NAME = "ghostFund";
+$GF_DB_USER = "a7a889bd7a068000a0f9016a5f63";
+$GF_DB_PASS = "0690a7a8-89bd-7bf4-8000-47cf16b84cd9";
 $GF_ADMIN_KEY = "supersecretadminkey";
-$GF_APP_URL   = "http://localhost";
-$GF_SMTP_HOST = "smtp.example.com";
+$GF_APP_URL   = "https://php-a3cc3.wasmer.app";
+$GF_SMTP_HOST = "smtp.office365.com";
 $GF_SMTP_PORT = 587;
-$GF_SMTP_USER = "smtp_user";
-$GF_SMTP_PASS = "smtp_pass";
-$GF_MAIL_FROM = "GhostFund <no-reply@ghostfund.co.zw>";
+$GF_SMTP_USER = "miltonhyndrex@gmail.com";
+$GF_SMTP_PASS = "123online";
+$GF_MAIL_FROM = "GhostFund <miltonhyndrex@gmail.com>";
 $GF_MARGIN_PERCENT = 10;
 $GF_DEFAULT_REPAYMENT_DAYS = 7;
-$GF_PAYNOW_ID  = "YOUR_PAYNOW_INTEGRATION_ID";
-$GF_PAYNOW_KEY = "YOUR_PAYNOW_INTEGRATION_KEY";
+$GF_PAYNOW_ID  = "22017";
+$GF_PAYNOW_KEY = "b49ee87f-89d1-4466-b0b1-24d0a73167ec";
 $GF_PAYNOW_URL = "https://www.paynow.co.zw/interface/initiatetransaction";
 
 /////////////////////
@@ -28,27 +44,25 @@ function gf_db(): PDO {
   static $pdo = null;
   global $GF_DB_HOST,$GF_DB_NAME,$GF_DB_USER,$GF_DB_PASS;
   if ($pdo) return $pdo;
-  $pdo = new PDO("mysql:host={$GF_DB_HOST};dbname={$GF_DB_NAME};charset=utf8mb4", $GF_DB_USER, $GF_DB_PASS, [
-    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-  ]);
+$pdo = new PDO(
+    "mysql:host={$GF_DB_HOST};port=10272;dbname={$GF_DB_NAME};charset=utf8mb4",
+    $GF_DB_USER,
+    $GF_DB_PASS,
+    [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]
+);
   return $pdo;
 }
 
 /////////////////////
 // MAIL (PHPMailer)
 /////////////////////
-function gf_parse_from($from): array {
-  if (preg_match('/(.*)<(.*)>/', $from, $m)) return ['name'=>trim($m[1]), 'email'=>trim($m[2])];
-  return ['name'=>'GhostFund','email'=>$from];
-}
 function gf_send_mail(string $to, string $subject, string $html): bool {
   global $GF_SMTP_HOST,$GF_SMTP_PORT,$GF_SMTP_USER,$GF_SMTP_PASS,$GF_MAIL_FROM;
-  require_once __DIR__ . "/PHPMailer.php";
-  require_once __DIR__ . "/SMTP.php";
-  require_once __DIR__ . "/Exception.php";
-  $from = gf_parse_from($GF_MAIL_FROM);
-  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+  $from = $GF_MAIL_FROM;
+  $mail = new PHPMailer(true);   // <-- corrected
   try {
     $mail->isSMTP();
     $mail->Host = $GF_SMTP_HOST;
@@ -62,7 +76,10 @@ function gf_send_mail(string $to, string $subject, string $html): bool {
     $mail->Subject = $subject;
     $mail->Body = $html;
     return $mail->send();
-  } catch (\Throwable $e) { return false; }
+  } catch (\Throwable $e) {
+    error_log("Mail error: " . $e->getMessage());
+    return false;
+  }
 }
 
 /////////////////////
@@ -218,31 +235,23 @@ function gf_mark_repayment(int $fundingId, float $repaidAmount): void {
 }
 
 function gf_paynow_create(string $ref, string $email, float $amount, string $returnUrl, string $resultUrl): array {
-  global $GF_PAYNOW_ID, $GF_PAYNOW_KEY, $GF_PAYNOW_URL;
-  $values = [
-    'id'            => $GF_PAYNOW_ID,
-    'reference'     => $ref,
-    'amount'        => number_format($amount, 2, '.', ''),
-    'additionalinfo'=> 'GhostFund Contribution',
-    'returnurl'     => $returnUrl,
-    'resulturl'     => $resultUrl,
-    'authemail'     => $email
-  ];
-  $fields_string = http_build_query($values);
-  $hash = strtoupper(hash("sha512", $fields_string . "&" . $GF_PAYNOW_KEY));
-  $fields_string .= "&hash=" . $hash;
+    global $GF_PAYNOW_ID, $GF_PAYNOW_KEY;
+    $paynow = new Paynow($GF_PAYNOW_ID, $GF_PAYNOW_KEY, $returnUrl, $resultUrl);
 
-  $ch = curl_init();
-  curl_setopt($ch, CURLOPT_URL, $GF_PAYNOW_URL);
-  curl_setopt($ch, CURLOPT_POST, true);
-  curl_setopt($ch, CURLOPT_POSTFIELDS, $fields_string);
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-  $result = curl_exec($ch);
-  curl_close($ch);
+    $payment = $paynow->createPayment($ref, $email);
+    $payment->add("GhostFund Contribution", $amount);
 
-  parse_str($result, $response);
-  return $response;
+    $response = $paynow->send($payment);
+    if ($response->success()) {
+        return [
+            'status'      => 'Ok',
+            'browserurl'  => $response->redirectUrl(),
+            'pollurl'     => $response->pollUrl()
+        ];
+    }
+    return ['status'=>'Error','error'=>'Paynow init failed'];
 }
+
 
 function gf_finalize_paid_contribution(string $reference, string $email, float $amount): void {
   global $GF_DEFAULT_REPAYMENT_DAYS;

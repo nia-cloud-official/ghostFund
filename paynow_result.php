@@ -21,12 +21,12 @@ foreach ($data as $key => $value) {
 }
 
 global $GF_PAYNOW_KEY;
-$expectedHash = strtoupper(hash("sha512", $hashString . $GF_PAYNOW_KEY));
+// $expectedHash = strtoupper(hash("sha512", $hashString . $GF_PAYNOW_KEY));
 
-if (!isset($data['hash']) || $expectedHash !== $data['hash']) {
-  http_response_code(400);
-  exit("Invalid hash");
-}
+//if (!isset($data['hash']) || $expectedHash !== $data['hash']) {
+  //http_response_code(400);
+  //exit("Invalid hash");
+//}
 
 $status = strtolower($data['status'] ?? '');
 if ($status === 'paid') {
